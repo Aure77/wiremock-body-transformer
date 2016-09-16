@@ -24,9 +24,14 @@ import com.github.tomakehurst.wiremock.extension.Parameters;
 import com.github.tomakehurst.wiremock.extension.ResponseDefinitionTransformer;
 import com.github.tomakehurst.wiremock.http.Request;
 import com.github.tomakehurst.wiremock.http.ResponseDefinition;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.utils.URLEncodedUtils;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.regex.Matcher;
@@ -93,26 +98,41 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
         return body;
     }
 
-    @Override
-    public ResponseDefinition transform(Request request, ResponseDefinition responseDefinition, FileSource fileSource, Parameters parameters) {
-        Map object = null;
-        try {
-            object = jsonMapper.readValue(request.getBodyAsString(), Map.class);
-        } catch (IOException e) {
-            try {
-                JacksonXmlModule configuration = new JacksonXmlModule();
-                //Set the default value name for xml elements like <user type="String">Dmytro</user>
-                configuration.setXMLTextElementName("value");
-                xmlMapper = new XmlMapper(configuration);
-                object = xmlMapper.readValue(request.getBodyAsString(), Map.class);
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            }
-        }
+	@Override
+	public ResponseDefinition transform(Request request, ResponseDefinition responseDefinition, FileSource fileSource, Parameters parameters) {
 
-        if (hasEmptyBody(responseDefinition)) {
-            return responseDefinition;
-        }
+		if (hasEmptyBody(responseDefinition)) {
+			return responseDefinition;
+		}
+
+		Map object = null;
+		String contentType = request.getHeader("Content-Type");
+		if(contentType.contains("json")) {
+			try {
+				object = jsonMapper.readValue(request.getBodyAsString(), Map.class);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		} else if(contentType.contains("xml")) {
+			try {
+				JacksonXmlModule configuration = new JacksonXmlModule();
+				//Set the default value name for xml elements like <user type="String">Dmytro</user>
+				configuration.setXMLTextElementName("value");
+				xmlMapper = new XmlMapper(configuration);
+				object = xmlMapper.readValue(request.getBodyAsString(), Map.class);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		} else if(contentType.contains("x-www-form-urlencoded")) {
+			object = new HashMap();
+			List<NameValuePair> nameValuePairs = URLEncodedUtils.parse(request.getBodyAsString(), Charset.defaultCharset());
+			for (NameValuePair nameValuePair : nameValuePairs) {
+				object.put(nameValuePair.getName(), nameValuePair.getValue().replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t"));
+			}
+		} else {
+			System.err.println("Content-Type :" + contentType + " - unsupported");
+			return responseDefinition;
+		}
 
         String body = getBody(responseDefinition, fileSource);
 
@@ -127,3 +147,4 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
         return "body-transformer";
     }
 }
+
